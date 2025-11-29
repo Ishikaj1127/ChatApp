@@ -30,6 +30,7 @@ public class CServer {
                 while ((bytes = fin.read(buff)) != -1) {
                     fout.write(buff, 0, bytes);
                 }
+                fout.close();
             }
         } catch (IOException e) {
             e.printStackTrace();

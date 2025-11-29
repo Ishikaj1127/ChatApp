@@ -81,6 +81,7 @@ public class CClient {
             while ((bytes = fin.read(buff)) != -1) {
                 fout.write(buff, 0, bytes);
             }
+            fin.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
