@@ -1,14 +1,14 @@
 import java.io.*;
+import java.net.*;
 import java.util.*;
 import javax.swing.*;
-import java.net.*;
 
 public class CServer {
-    private static ArrayList<ClientHandler> clients = new ArrayList<>();
+    private static final ArrayList<ClientHandler> clients = new ArrayList<>();
 
     public static void main(String[] args) {
         JFrame frame = new JFrame("Chat Server");
-        JTextArea textarea = new JTextArea(30, 50);
+        JTextArea textarea = new JTextArea(20, 40);
         textarea.setEditable(false);
         frame.add(new JScrollPane(textarea));
         frame.pack();
@@ -17,13 +17,18 @@ public class CServer {
 
         try (ServerSocket ss = new ServerSocket(12345)) {
             textarea.append("Server started on port 12345\n");
+
             while (true) {
                 Socket socket = ss.accept();
                 textarea.append("Client Connected: " + socket + "\n");
+
                 ClientHandler ch = new ClientHandler(socket, textarea);
-                clients.add(ch);
+                synchronized (clients) {
+                    clients.add(ch);
+                }
                 new Thread(ch).start();
             }
+
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -31,56 +36,70 @@ public class CServer {
 
     static class ClientHandler implements Runnable {
         Socket socket;
-        PrintWriter out;
-        BufferedReader in;
+        BufferedReader textIn;
+        DataInputStream dataIn;
+        PrintWriter textOut;
+        DataOutputStream dataOut;
         JTextArea textarea;
 
-        public ClientHandler(Socket socket, JTextArea textarea) {
+        public ClientHandler(Socket socket, JTextArea textarea) throws IOException {
             this.socket = socket;
             this.textarea = textarea;
+            this.textIn = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            this.dataIn = new DataInputStream(socket.getInputStream());
+            this.textOut = new PrintWriter(socket.getOutputStream(), true);
+            this.dataOut = new DataOutputStream(socket.getOutputStream());
         }
 
+        @Override
         public void run() {
             try {
-                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                out = new PrintWriter(socket.getOutputStream(), true);
-                String message;
+                while (true) {
+                    String header = textIn.readLine();
+                    if (header == null)
+                        break;
 
-                new Thread(this::recieveImage).start();
+                    if (header.startsWith("TEXT:")) {
+                        handleText(header.substring(5));
 
-                while ((message = in.readLine()) != null) {
-                    textarea.append("Client: " + message + "\n");
-                    for (ClientHandler client : clients) {
-                        client.out.println(message);
+                    } else if (header.startsWith("IMAGE:")) {
+                        int size = Integer.parseInt(header.substring(6));
+                        handleImage(size);
                     }
                 }
+
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
+                synchronized (clients) {
+                    clients.remove(this);
+                }
                 try {
                     socket.close();
-                    clients.remove(this);
-                } catch (IOException e) {
-                    e.printStackTrace();
+                } catch (IOException ignored) {
                 }
             }
         }
 
-        private void recieveImage() {
-            try {
-                FileOutputStream fout = new FileOutputStream("Recieve.png");
-                InputStream fin = socket.getInputStream();
-                byte[] buff = new byte[4096];
-                int bytes;
-                while ((bytes = fin.read(buff)) != -1) {
-                    fout.write(buff, 0, bytes);
+        private void handleText(String msg) {
+            textarea.append("Client: " + msg + "\n");
+
+            synchronized (clients) {
+                for (ClientHandler client : clients) {
+                    client.textOut.println("TEXT:" + msg);
                 }
-                fout.close();
-                textarea.append("Image received\n");
-            } catch (IOException e) {
-                e.printStackTrace();
             }
         }
 
+        private void handleImage(int size) throws IOException {
+            textarea.append("Receiving image (" + size + " bytes)\n");
+
+            byte[] imgData = dataIn.readNBytes(size);
+
+            try (FileOutputStream out = new FileOutputStream("Received_From_Client.png")) {
+                out.write(imgData);
+            }
+
+        }
     }
 }
